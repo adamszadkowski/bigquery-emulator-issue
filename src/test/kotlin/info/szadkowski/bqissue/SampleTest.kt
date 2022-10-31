@@ -7,7 +7,8 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 
 class SampleTest {
-    private val projectId = "<REPLACE_WITH_YOUR_PROJECT_ID>"
+    private val host = "http://localhost:9050"
+    private val projectId = "test"
     private val datasetId = "testingbq"
     private val tableId = "mytablename"
 
@@ -22,6 +23,7 @@ class SampleTest {
             .build()
 
         service = BigQueryOptions.newBuilder()
+            .setHost(host)
             .setTransportOptions(transportOptions)
             .setLocation("EU")
             .setCredentials(GoogleCredentials.getApplicationDefault())
