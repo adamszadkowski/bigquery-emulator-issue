@@ -8,11 +8,12 @@ repositories {
 
 dependencies {
     implementation(platform("org.junit:junit-bom:5.9.1"))
+    implementation(platform("com.google.cloud:libraries-bom:26.1.5"))
 
     implementation(kotlin("stdlib"))
     implementation(kotlin("reflect"))
 
-    implementation("com.google.cloud:google-cloud-bigquery:2.18.2")
+    implementation("com.google.cloud:google-cloud-bigquery")
 
     testImplementation("org.junit.jupiter:junit-jupiter-api")
     testImplementation("io.strikt:strikt-core:0.34.1")
