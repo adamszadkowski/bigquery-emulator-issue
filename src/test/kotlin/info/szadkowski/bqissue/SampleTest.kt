@@ -11,17 +11,20 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.ExtendWith
 import strikt.api.expectThat
 import strikt.assertions.containsExactly
 import strikt.assertions.isFalse
 import strikt.assertions.isGreaterThan
 import org.apache.avro.Schema as ArvoSchema
 
-class SampleTest {
+@ExtendWith(RandomExtension::class)
+class SampleTest(
+    @RandomResolve(prefix = "testingbq") private val datasetId: String,
+    @RandomResolve(prefix = "mytablename") private val tableId: String,
+) {
     private val host = "http://localhost:9050"
     private val projectId = "test"
-    private val datasetId = "testingbq"
-    private val tableId = "mytablename"
 
     private lateinit var service: BigQuery
 
