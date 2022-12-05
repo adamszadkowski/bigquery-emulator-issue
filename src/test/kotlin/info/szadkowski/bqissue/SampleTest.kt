@@ -3,6 +3,7 @@ package info.szadkowski.bqissue
 import com.google.cloud.NoCredentials
 import com.google.cloud.bigquery.*
 import com.google.cloud.bigquery.storage.v1.*
+import com.google.cloud.bigquery.storage.v1.stub.EnhancedBigQueryReadStubSettings
 import org.apache.avro.generic.GenericDatumReader
 import org.apache.avro.generic.GenericRecord
 import org.apache.avro.io.BinaryDecoder
@@ -89,6 +90,12 @@ class SampleTest(
         fun `read data using grpc api`() {
             val settings = BigQueryReadSettings.newBuilder()
                 .setEndpoint("localhost:9060")
+                .setCredentialsProvider { DummyCredentials() }
+                .setTransportChannelProvider(
+                    EnhancedBigQueryReadStubSettings.defaultGrpcTransportProviderBuilder()
+                        .setChannelConfigurator { it.usePlaintext() }
+                        .build()
+                )
                 .build()
 
             val client = BigQueryReadClient.create(settings)
