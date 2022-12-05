@@ -14,6 +14,8 @@ dependencies {
     implementation(kotlin("reflect"))
 
     implementation("com.google.cloud:google-cloud-bigquery")
+    implementation("com.google.cloud:google-cloud-bigquerystorage")
+    implementation("org.apache.avro:avro:1.11.1")
 
     testImplementation("org.junit.jupiter:junit-jupiter-api")
     testImplementation("io.strikt:strikt-core:0.34.1")

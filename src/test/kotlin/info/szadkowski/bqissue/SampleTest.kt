@@ -2,6 +2,11 @@ package info.szadkowski.bqissue
 
 import com.google.cloud.NoCredentials
 import com.google.cloud.bigquery.*
+import com.google.cloud.bigquery.storage.v1.*
+import org.apache.avro.generic.GenericDatumReader
+import org.apache.avro.generic.GenericRecord
+import org.apache.avro.io.BinaryDecoder
+import org.apache.avro.io.DecoderFactory
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Nested
@@ -9,6 +14,8 @@ import org.junit.jupiter.api.Test
 import strikt.api.expectThat
 import strikt.assertions.containsExactly
 import strikt.assertions.isFalse
+import strikt.assertions.isGreaterThan
+import org.apache.avro.Schema as ArvoSchema
 
 class SampleTest {
     private val host = "http://localhost:9050"
@@ -70,7 +77,75 @@ class SampleTest {
                 .values
                 .map { Result(it.get("id").stringValue, it.get("otherProp").stringValue) }
 
-            expectThat(loaded).containsExactly(Result("15432", "some value here"))
+            expectThat(loaded).containsExactly(
+                Result("15432", "some value here"),
+            )
+        }
+
+        @Test
+        fun `read data using grpc api`() {
+            val settings = BigQueryReadSettings.newBuilder()
+                .setEndpoint("localhost:9060")
+                .build()
+
+            val client = BigQueryReadClient.create(settings)
+
+            val options = ReadSession.TableReadOptions.newBuilder()
+                .addSelectedFields("id")
+                .addSelectedFields("otherProp")
+                .build()
+
+            val sessionBuilder = ReadSession.newBuilder()
+                .setTable("projects/$projectId/datasets/$datasetId/tables/$tableId")
+                .setDataFormat(DataFormat.AVRO)
+                .setReadOptions(options)
+
+            val request = CreateReadSessionRequest.newBuilder()
+                .setParent("projects/$projectId")
+                .setReadSession(sessionBuilder)
+                .setMaxStreamCount(1)
+                .build()
+
+            val session = client.createReadSession(request)
+
+            val reader = ResultReader(ArvoSchema.Parser().parse(session.avroSchema.schema))
+
+            expectThat(session.streamsCount).isGreaterThan(0)
+
+            val streamName = session.getStreams(0).name
+            val readRowsRequest = ReadRowsRequest.newBuilder().setReadStream(streamName).build()
+
+            val loaded = client.readRowsCallable().call(readRowsRequest)
+                .asSequence()
+                .filter { it.hasAvroRows() }
+                .flatMap { reader.processRows(it.avroRows) }
+                .toList()
+
+            expectThat(loaded).containsExactly(
+                Result("15432", "some value here"),
+            )
+        }
+    }
+}
+
+class ResultReader(schema: ArvoSchema) {
+    private val datumReader = GenericDatumReader<GenericRecord>(schema)
+    private var decoder: BinaryDecoder? = null
+    private var row: GenericRecord? = null
+
+    fun processRows(rows: AvroRows): Sequence<Result> {
+        decoder = DecoderFactory.get().binaryDecoder(rows.serializedBinaryRows.toByteArray(), decoder)
+        return generateSequence {
+            if (decoder!!.isEnd) null
+            else {
+                row = datumReader.read(row, decoder)
+                row?.let {
+                    Result(
+                        id = it.get("id").toString(),
+                        otherProp = it.get("otherProp").toString(),
+                    )
+                }
+            }
         }
     }
 }
