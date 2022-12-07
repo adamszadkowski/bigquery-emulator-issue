@@ -1,13 +1,18 @@
 package info.szadkowski.bqissue
 
+import com.google.api.core.ApiFutureCallback
+import com.google.api.core.ApiFutures
 import com.google.cloud.NoCredentials
 import com.google.cloud.bigquery.*
 import com.google.cloud.bigquery.storage.v1.*
 import com.google.cloud.bigquery.storage.v1.stub.EnhancedBigQueryReadStubSettings
+import com.google.common.util.concurrent.MoreExecutors
 import org.apache.avro.generic.GenericDatumReader
 import org.apache.avro.generic.GenericRecord
 import org.apache.avro.io.BinaryDecoder
 import org.apache.avro.io.DecoderFactory
+import org.json.JSONArray
+import org.json.JSONObject
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Nested
@@ -17,6 +22,8 @@ import strikt.api.expectThat
 import strikt.assertions.containsExactly
 import strikt.assertions.isFalse
 import strikt.assertions.isGreaterThan
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import org.apache.avro.Schema as ArvoSchema
 
 @ExtendWith(RandomExtension::class)
@@ -28,6 +35,7 @@ class SampleTest(
     private val projectId = "test"
 
     private lateinit var service: BigQuery
+    private lateinit var schema: Schema
 
     @BeforeEach
     fun `create dataset and table`() {
@@ -48,7 +56,7 @@ class SampleTest(
 
         service.create(DatasetInfo.newBuilder(projectId, datasetId).setLocation("EU").build())
 
-        val schema = Schema.of(
+        schema = Schema.of(
             Field.of("id", StandardSQLTypeName.STRING),
             Field.of("otherProp", StandardSQLTypeName.STRING),
         )
@@ -130,6 +138,65 @@ class SampleTest(
                 .filter { it.hasAvroRows() }
                 .flatMap { reader.processRows(it.avroRows) }
                 .toList()
+
+            expectThat(loaded).containsExactly(
+                Result("15432", "some value here"),
+            )
+        }
+    }
+
+    @Nested
+    inner class `grpc api saved data` {
+
+        @BeforeEach
+        fun `store data`() {
+            val settings = BigQueryWriteSettings.newBuilder()
+                .setEndpoint("localhost:9060")
+                .setCredentialsProvider { DummyCredentials() }
+                .setTransportChannelProvider(
+                    EnhancedBigQueryReadStubSettings.defaultGrpcTransportProviderBuilder()
+                        .setChannelConfigurator { it.usePlaintext() }
+                        .build()
+                )
+                .build()
+
+            val client = BigQueryWriteClient.create(settings)
+
+            val table = TableName.of(projectId, datasetId, tableId).toString()
+            val tableSchema = BqToBqStorageSchemaConverter.convertTableSchema(schema)
+            JsonStreamWriter.newBuilder(table, tableSchema, client).build()
+                .use { streamWriter ->
+                    val jsonArr = JSONArray().apply {
+                        val record = JSONObject()
+                        record.put("id", "15432")
+                        record.put("otherProp", "some value here")
+                        this.put(record)
+                    }
+
+                    val future = streamWriter.append(jsonArr)
+
+                    val latch = CountDownLatch(1)
+                    ApiFutures.addCallback(future, object : ApiFutureCallback<AppendRowsResponse> {
+                        override fun onFailure(t: Throwable) {
+                            throw t
+                        }
+
+                        override fun onSuccess(result: AppendRowsResponse) {
+                            latch.countDown()
+                        }
+
+                    }, MoreExecutors.directExecutor())
+
+                    latch.await(10, TimeUnit.SECONDS)
+                }
+        }
+
+        @Test
+        fun `read data using rest api`() {
+            val query = "SELECT * FROM `$projectId.$datasetId.$tableId`"
+            val loaded = service.query(QueryJobConfiguration.of(query))
+                .values
+                .map { Result(it.get("id").stringValue, it.get("otherProp").stringValue) }
 
             expectThat(loaded).containsExactly(
                 Result("15432", "some value here"),
