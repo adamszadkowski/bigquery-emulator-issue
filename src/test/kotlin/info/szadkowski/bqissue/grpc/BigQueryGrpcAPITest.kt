@@ -1,4 +1,4 @@
-package info.szadkowski.bqissue
+package info.szadkowski.bqissue.grpc
 
 import com.google.api.core.ApiFutureCallback
 import com.google.api.core.ApiFutures
@@ -29,7 +29,7 @@ import java.util.concurrent.TimeUnit
 import org.apache.avro.Schema as ArvoSchema
 
 @ExtendWith(RandomExtension::class)
-class SampleTest(
+class BigQueryGrpcAPITest(
     @RandomResolve(prefix = "testingbq") private val datasetId: String,
     @RandomResolve(prefix = "mytablename") private val tableId: String,
 ) {

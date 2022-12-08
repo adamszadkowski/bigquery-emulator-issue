@@ -1,4 +1,4 @@
-package info.szadkowski.bqissue
+package info.szadkowski.bqissue.grpc
 
 import com.google.auth.Credentials
 import java.net.URI
