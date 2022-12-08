@@ -1,20 +1,15 @@
 package info.szadkowski.bqissue.grpc
 
-import com.google.api.core.ApiFutureCallback
-import com.google.api.core.ApiFutures
 import com.google.cloud.NoCredentials
 import com.google.cloud.bigquery.*
 import com.google.cloud.bigquery.storage.v1.*
 import com.google.cloud.bigquery.storage.v1.stub.EnhancedBigQueryReadStubSettings
-import com.google.common.util.concurrent.MoreExecutors
 import info.szadkowski.bqissue.utils.RandomExtension
 import info.szadkowski.bqissue.utils.RandomResolve
 import org.apache.avro.generic.GenericDatumReader
 import org.apache.avro.generic.GenericRecord
 import org.apache.avro.io.BinaryDecoder
 import org.apache.avro.io.DecoderFactory
-import org.json.JSONArray
-import org.json.JSONObject
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Nested
@@ -24,16 +19,16 @@ import strikt.api.expectThat
 import strikt.assertions.containsExactly
 import strikt.assertions.isFalse
 import strikt.assertions.isGreaterThan
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
 import org.apache.avro.Schema as ArvoSchema
 
 @ExtendWith(RandomExtension::class)
-class BigQueryGrpcAPITest(
+class BigQueryGrpcReadAPITest(
     @RandomResolve(prefix = "testingbq") private val datasetId: String,
     @RandomResolve(prefix = "mytablename") private val tableId: String,
 ) {
-    private val host = "http://localhost:9050"
+    private val restHost = "http://localhost:9050"
+    private val grpcHost = "localhost:9060"
+
     private val projectId = "test"
 
     private lateinit var service: BigQuery
@@ -48,7 +43,7 @@ class BigQueryGrpcAPITest(
             .build()
 
         service = BigQueryOptions.newBuilder()
-            .setHost(host)
+            .setHost(restHost)
             .setTransportOptions(transportOptions)
             .setLocation("EU")
             .setProjectId(projectId)
@@ -71,7 +66,7 @@ class BigQueryGrpcAPITest(
     }
 
     @Nested
-    inner class `rest api saved data` {
+    inner class `saved data` {
 
         @BeforeEach
         fun `store data`() {
@@ -85,21 +80,9 @@ class BigQueryGrpcAPITest(
         }
 
         @Test
-        fun `read data using rest api`() {
-            val query = "SELECT * FROM `$projectId.$datasetId.$tableId`"
-            val loaded = service.query(QueryJobConfiguration.of(query))
-                .values
-                .map { Result(it.get("id").stringValue, it.get("otherProp").stringValue) }
-
-            expectThat(loaded).containsExactly(
-                Result("15432", "some value here"),
-            )
-        }
-
-        @Test
         fun `read data using grpc api`() {
             val settings = BigQueryReadSettings.newBuilder()
-                .setEndpoint("localhost:9060")
+                .setEndpoint(grpcHost)
                 .setCredentialsProvider { DummyCredentials() }
                 .setTransportChannelProvider(
                     EnhancedBigQueryReadStubSettings.defaultGrpcTransportProviderBuilder()
@@ -147,89 +130,30 @@ class BigQueryGrpcAPITest(
         }
     }
 
-    @Nested
-    inner class `grpc api saved data` {
+    class ResultReader(schema: ArvoSchema) {
+        private val datumReader = GenericDatumReader<GenericRecord>(schema)
+        private var decoder: BinaryDecoder? = null
+        private var row: GenericRecord? = null
 
-        @BeforeEach
-        fun `store data`() {
-            val settings = BigQueryWriteSettings.newBuilder()
-                .setEndpoint("localhost:9060")
-                .setCredentialsProvider { DummyCredentials() }
-                .setTransportChannelProvider(
-                    EnhancedBigQueryReadStubSettings.defaultGrpcTransportProviderBuilder()
-                        .setChannelConfigurator { it.usePlaintext() }
-                        .build()
-                )
-                .build()
-
-            val client = BigQueryWriteClient.create(settings)
-
-            val table = TableName.of(projectId, datasetId, tableId).toString()
-            val tableSchema = BqToBqStorageSchemaConverter.convertTableSchema(schema)
-            JsonStreamWriter.newBuilder(table, tableSchema, client).build()
-                .use { streamWriter ->
-                    val jsonArr = JSONArray().apply {
-                        val record = JSONObject()
-                        record.put("id", "15432")
-                        record.put("otherProp", "some value here")
-                        this.put(record)
+        fun processRows(rows: AvroRows): Sequence<Result> {
+            decoder = DecoderFactory.get().binaryDecoder(rows.serializedBinaryRows.toByteArray(), decoder)
+            return generateSequence {
+                if (decoder!!.isEnd) null
+                else {
+                    row = datumReader.read(row, decoder)
+                    row?.let {
+                        Result(
+                            id = it.get("id").toString(),
+                            otherProp = it.get("otherProp").toString(),
+                        )
                     }
-
-                    val future = streamWriter.append(jsonArr)
-
-                    val latch = CountDownLatch(1)
-                    ApiFutures.addCallback(future, object : ApiFutureCallback<AppendRowsResponse> {
-                        override fun onFailure(t: Throwable) {
-                            throw t
-                        }
-
-                        override fun onSuccess(result: AppendRowsResponse) {
-                            latch.countDown()
-                        }
-
-                    }, MoreExecutors.directExecutor())
-
-                    latch.await(10, TimeUnit.SECONDS)
-                }
-        }
-
-        @Test
-        fun `read data using rest api`() {
-            val query = "SELECT * FROM `$projectId.$datasetId.$tableId`"
-            val loaded = service.query(QueryJobConfiguration.of(query))
-                .values
-                .map { Result(it.get("id").stringValue, it.get("otherProp").stringValue) }
-
-            expectThat(loaded).containsExactly(
-                Result("15432", "some value here"),
-            )
-        }
-    }
-}
-
-class ResultReader(schema: ArvoSchema) {
-    private val datumReader = GenericDatumReader<GenericRecord>(schema)
-    private var decoder: BinaryDecoder? = null
-    private var row: GenericRecord? = null
-
-    fun processRows(rows: AvroRows): Sequence<Result> {
-        decoder = DecoderFactory.get().binaryDecoder(rows.serializedBinaryRows.toByteArray(), decoder)
-        return generateSequence {
-            if (decoder!!.isEnd) null
-            else {
-                row = datumReader.read(row, decoder)
-                row?.let {
-                    Result(
-                        id = it.get("id").toString(),
-                        otherProp = it.get("otherProp").toString(),
-                    )
                 }
             }
         }
     }
-}
 
-data class Result(
-    val id: String,
-    val otherProp: String,
-)
+    data class Result(
+        val id: String,
+        val otherProp: String,
+    )
+}
