@@ -1,8 +1,10 @@
-package info.szadkowski.bqissue
+package info.szadkowski.bqissue.rest
 
 import com.google.cloud.NoCredentials
 import com.google.cloud.bigquery.*
 import com.google.cloud.bigquery.storage.v1.*
+import info.szadkowski.bqissue.utils.RandomExtension
+import info.szadkowski.bqissue.utils.RandomResolve
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Nested

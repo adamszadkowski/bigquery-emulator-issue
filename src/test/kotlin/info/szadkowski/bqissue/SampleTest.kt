@@ -7,6 +7,8 @@ import com.google.cloud.bigquery.*
 import com.google.cloud.bigquery.storage.v1.*
 import com.google.cloud.bigquery.storage.v1.stub.EnhancedBigQueryReadStubSettings
 import com.google.common.util.concurrent.MoreExecutors
+import info.szadkowski.bqissue.utils.RandomExtension
+import info.szadkowski.bqissue.utils.RandomResolve
 import org.apache.avro.generic.GenericDatumReader
 import org.apache.avro.generic.GenericRecord
 import org.apache.avro.io.BinaryDecoder
