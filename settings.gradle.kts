@@ -1,3 +1,3 @@
 rootProject.name = "bigquery-emulator-issue"
 
-include("library-usage")
+include("library-usage", "spark-usage")

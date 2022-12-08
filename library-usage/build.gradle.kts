@@ -2,10 +2,6 @@ plugins {
     kotlin("jvm") version "1.7.20"
 }
 
-repositories {
-    mavenCentral()
-}
-
 dependencies {
     implementation(platform("org.junit:junit-bom:5.9.1"))
     implementation(platform("com.google.cloud:libraries-bom:26.1.5"))
