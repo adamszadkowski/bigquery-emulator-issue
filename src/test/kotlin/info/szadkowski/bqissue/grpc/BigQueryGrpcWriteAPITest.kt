@@ -6,7 +6,6 @@ import com.google.cloud.NoCredentials
 import com.google.cloud.bigquery.*
 import com.google.cloud.bigquery.storage.v1.*
 import com.google.cloud.bigquery.storage.v1.stub.EnhancedBigQueryReadStubSettings
-import com.google.common.collect.ImmutableMap
 import com.google.common.util.concurrent.MoreExecutors
 import info.szadkowski.bqissue.utils.RandomExtension
 import info.szadkowski.bqissue.utils.RandomResolve
@@ -115,52 +114,38 @@ class BigQueryGrpcWriteAPITest(
 }
 
 private object BqToBqStorageSchemaConverter {
-    private val BQTableSchemaModeMap: ImmutableMap<Field.Mode, TableFieldSchema.Mode> = ImmutableMap.of(
-        Field.Mode.NULLABLE, TableFieldSchema.Mode.NULLABLE,
-        Field.Mode.REPEATED, TableFieldSchema.Mode.REPEATED,
-        Field.Mode.REQUIRED, TableFieldSchema.Mode.REQUIRED
+    private val BQTableSchemaModeMap = mapOf(
+        Field.Mode.NULLABLE to TableFieldSchema.Mode.NULLABLE,
+        Field.Mode.REPEATED to TableFieldSchema.Mode.REPEATED,
+        Field.Mode.REQUIRED to TableFieldSchema.Mode.REQUIRED,
     )
-    private val BQTableSchemaTypeMap: ImmutableMap<StandardSQLTypeName, TableFieldSchema.Type> =
-        ImmutableMap.Builder<StandardSQLTypeName, TableFieldSchema.Type>()
-            .put(StandardSQLTypeName.BOOL, TableFieldSchema.Type.BOOL)
-            .put(StandardSQLTypeName.BYTES, TableFieldSchema.Type.BYTES)
-            .put(StandardSQLTypeName.DATE, TableFieldSchema.Type.DATE)
-            .put(StandardSQLTypeName.DATETIME, TableFieldSchema.Type.DATETIME)
-            .put(StandardSQLTypeName.FLOAT64, TableFieldSchema.Type.DOUBLE)
-            .put(StandardSQLTypeName.GEOGRAPHY, TableFieldSchema.Type.GEOGRAPHY)
-            .put(StandardSQLTypeName.INT64, TableFieldSchema.Type.INT64)
-            .put(StandardSQLTypeName.NUMERIC, TableFieldSchema.Type.NUMERIC)
-            .put(StandardSQLTypeName.STRING, TableFieldSchema.Type.STRING)
-            .put(StandardSQLTypeName.STRUCT, TableFieldSchema.Type.STRUCT)
-            .put(StandardSQLTypeName.TIME, TableFieldSchema.Type.TIME)
-            .put(StandardSQLTypeName.TIMESTAMP, TableFieldSchema.Type.TIMESTAMP)
-            .build()
+    private val BQTableSchemaTypeMap = mapOf(
+        StandardSQLTypeName.BOOL to TableFieldSchema.Type.BOOL,
+        StandardSQLTypeName.BYTES to TableFieldSchema.Type.BYTES,
+        StandardSQLTypeName.DATE to TableFieldSchema.Type.DATE,
+        StandardSQLTypeName.DATETIME to TableFieldSchema.Type.DATETIME,
+        StandardSQLTypeName.FLOAT64 to TableFieldSchema.Type.DOUBLE,
+        StandardSQLTypeName.GEOGRAPHY to TableFieldSchema.Type.GEOGRAPHY,
+        StandardSQLTypeName.INT64 to TableFieldSchema.Type.INT64,
+        StandardSQLTypeName.NUMERIC to TableFieldSchema.Type.NUMERIC,
+        StandardSQLTypeName.STRING to TableFieldSchema.Type.STRING,
+        StandardSQLTypeName.STRUCT to TableFieldSchema.Type.STRUCT,
+        StandardSQLTypeName.TIME to TableFieldSchema.Type.TIME,
+        StandardSQLTypeName.TIMESTAMP to TableFieldSchema.Type.TIMESTAMP,
+    )
 
-    fun convertTableSchema(schema: Schema): TableSchema {
-        val result = TableSchema.newBuilder()
-        for (i in 0 until schema.fields.size) {
-            result.addFields(i, convertFieldSchema(schema.fields[i]))
-        }
-        return result.build()
-    }
+    fun convertTableSchema(schema: Schema): TableSchema =
+        schema.fields.foldIndexed(initial = TableSchema.newBuilder()) { index, builder, field ->
+            builder.addFields(index, convertFieldSchema(field))
+        }.build()
 
-    private fun convertFieldSchema(field: Field): TableFieldSchema {
-        var field = field
-        val result = TableFieldSchema.newBuilder()
-        if (field.mode == null) {
-            field = field.toBuilder().setMode(Field.Mode.NULLABLE).build()
+    private fun convertFieldSchema(field: Field): TableFieldSchema = TableFieldSchema.newBuilder()
+        .apply {
+            mode = BQTableSchemaModeMap[field.mode ?: Field.Mode.NULLABLE]
+            name = field.name
+            type = BQTableSchemaTypeMap[field.type.standardType]
+            field.description?.let { this.description = it }
+            field.subFields?.forEachIndexed { i, f -> addFields(i, convertFieldSchema(f)) }
         }
-        result.mode = BQTableSchemaModeMap[field.mode]
-        result.name = field.name
-        result.type = BQTableSchemaTypeMap[field.type.standardType]
-        if (field.description != null) {
-            result.description = field.description
-        }
-        if (field.subFields != null) {
-            for (i in 0 until field.subFields.size) {
-                result.addFields(i, convertFieldSchema(field.subFields[i]))
-            }
-        }
-        return result.build()
-    }
+        .build()
 }
