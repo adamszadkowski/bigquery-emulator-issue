@@ -1,5 +1,6 @@
 package info.szadkowski.bqissue.spark
 
+import com.google.cloud.spark.bigquery.repackaged.com.google.cloud.NoCredentials
 import com.google.cloud.spark.bigquery.repackaged.com.google.cloud.bigquery._
 import org.apache.spark.sql.{Row, SparkSession}
 import org.scalatest.BeforeAndAfter
@@ -15,6 +16,8 @@ class BigQueryReadSpec extends AnyFunSuite with Matchers with BeforeAndAfter {
   private var tableId: String = _
 
   private lazy val service = BigQueryOptions.newBuilder()
+    .setHost("http://localhost:9050")
+    .setCredentials(NoCredentials.getInstance())
     .setLocation("EU")
     .setProjectId(projectId)
     .build()
@@ -23,6 +26,9 @@ class BigQueryReadSpec extends AnyFunSuite with Matchers with BeforeAndAfter {
   private lazy val sparkSession = SparkSession.builder()
     .master("local")
     .appName("testing")
+    .config("bigQueryHttpEndpoint", "http://localhost:9050")
+    .config("bigQueryStorageGrpcEndpoint", "localhost:9060")
+    .config("readDataFormat", "AVRO")
     .getOrCreate()
 
   before {
@@ -50,6 +56,7 @@ class BigQueryReadSpec extends AnyFunSuite with Matchers with BeforeAndAfter {
   test("loading any data") {
     val rows = sparkSession.read
       .format("bigquery")
+      .option("parallelism", 1) // required by bigquery-emulator
       .load(s"$projectId.$datasetId.$tableId")
       .collectAsList()
     rows should contain theSameElementsAs Seq(

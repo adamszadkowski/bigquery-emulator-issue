@@ -36,6 +36,8 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import javax.inject.Inject;
+
+import info.szadkowski.bqissue.fixes.BigQueryClientFixes;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -142,10 +144,12 @@ public class BigQueryClientFactory implements Serializable {
     private BigQueryReadClient createBigQueryReadClient(Optional<String> endpoint) {
         try {
             InstantiatingGrpcChannelProvider.Builder transportBuilder = createTransportBuilder(endpoint);
+            BigQueryClientFixes.INSTANCE.modifyTransportBuilder(transportBuilder, endpoint);
             BigQueryReadSettings.Builder clientSettings =
                     BigQueryReadSettings.newBuilder()
                             .setTransportChannelProvider(transportBuilder.build())
                             .setCredentialsProvider(FixedCredentialsProvider.create(credentials));
+            BigQueryClientFixes.INSTANCE.modifyClientSettings(clientSettings, endpoint);
             bqConfig
                     .getCreateReadSessionTimeoutInSeconds()
                     .ifPresent(
