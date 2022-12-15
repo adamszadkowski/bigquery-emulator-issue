@@ -58,6 +58,49 @@ Caused by: com.google.cloud.spark.bigquery.repackaged.io.grpc.StatusRuntimeExcep
 	... 14 more
 ```
 
+## Problems with streaming write
+
+It looks like there should be default stream for writing. Currently, error is returned:
+```
+com.google.api.gax.rpc.UnknownException: io.grpc.StatusRuntimeException: UNKNOWN: failed to append rows: failed to get stream from projects/test/datasets/testingbq/tables/mytablename/_default
+	at com.google.api.gax.rpc.ApiExceptionFactory.createException(ApiExceptionFactory.java:119)
+	at com.google.api.gax.rpc.ApiExceptionFactory.createException(ApiExceptionFactory.java:41)
+```
+
+Creating stream before write with below code doesn't work either:
+```kotlin
+val createWriteStreamRequest = CreateWriteStreamRequest.newBuilder()
+	.setParent(TableName.of(projectId, datasetId, tableId).toString())
+	.setWriteStream(WriteStream.newBuilder().setType(WriteStream.Type.COMMITTED).build())
+	.build()
+
+val writeStream = client.createWriteStream(createWriteStreamRequest)
+```
+
+Execution of create stream request for the first time when `bigquery-emulator` has been started causes error:
+```
+com.google.api.gax.rpc.NotFoundException: io.grpc.StatusRuntimeException: NOT_FOUND: Project test is not found. Make sure it references valid GCP project that hasn't been deleted.; Project id: test
+	at com.google.api.gax.rpc.ApiExceptionFactory.createException(ApiExceptionFactory.java:90)
+	at com.google.api.gax.rpc.ApiExceptionFactory.createException(ApiExceptionFactory.java:41)
+```
+
+Consecutive executions causes test code to hang on timeout after which there is another error:
+```
+com.google.api.gax.rpc.DeadlineExceededException: io.grpc.StatusRuntimeException: DEADLINE_EXCEEDED: deadline exceeded after 1199.955284179s. [closed=[], open=[[buffered_nanos=233286500, buffered_nanos=7866891, remote_addr=localhost/127.0.0.1:9060]]]
+
+	at com.google.api.gax.rpc.ApiExceptionFactory.createException(ApiExceptionFactory.java:94)
+	at com.google.api.gax.rpc.ApiExceptionFactory.createException(ApiExceptionFactory.java:41)
+	at com.google.api.gax.grpc.GrpcApiExceptionFactory.create(GrpcApiExceptionFactory.java:86)
+	a
+```
+
+After that it is impossible to close gracefully `bigquery-emulator`. Ctrl + C in console causes hang:
+```
+^C[bigquery-emulator] receive interrupt. shutdown gracefully
+```
+
+Only `kill -9 pid` helps.
+
 ## Already solved issues
 
 <s>

@@ -7,6 +7,7 @@ import com.google.cloud.bigquery.*
 import com.google.cloud.bigquery.storage.v1.*
 import com.google.cloud.bigquery.storage.v1.stub.EnhancedBigQueryReadStubSettings
 import com.google.common.util.concurrent.MoreExecutors
+import info.szadkowski.bqissue.rest.BigQueryRestAPITest
 import info.szadkowski.bqissue.utils.RandomExtension
 import info.szadkowski.bqissue.utils.RandomResolve
 import org.json.JSONArray
@@ -17,6 +18,8 @@ import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.ExtendWith
 import strikt.api.expectThat
+import strikt.assertions.containsExactly
+import strikt.assertions.isEqualTo
 import strikt.assertions.isTrue
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -36,15 +39,8 @@ class BigQueryGrpcWriteAPITest(
 
     @BeforeEach
     fun `create dataset and table`() {
-        val transportOptions = BigQueryOptions.getDefaultHttpTransportOptions()
-            .toBuilder()
-            .setConnectTimeout(6000)
-            .setReadTimeout(6000)
-            .build()
-
         service = BigQueryOptions.newBuilder()
             .setHost(host)
-            .setTransportOptions(transportOptions)
             .setLocation("EU")
             .setProjectId(projectId)
             .setCredentials(NoCredentials.getInstance())
@@ -69,7 +65,7 @@ class BigQueryGrpcWriteAPITest(
     inner class `grpc api saved data` {
 
         @Test
-        fun `store data`() {
+        fun `store data using default stream`() {
             val settings = BigQueryWriteSettings.newBuilder()
                 .setEndpoint(grpcHost)
                 .setCredentialsProvider { DummyCredentials() }
@@ -109,6 +105,71 @@ class BigQueryGrpcWriteAPITest(
 
                     expectThat(latch.await(2, TimeUnit.SECONDS)).isTrue()
                 }
+
+            expectThatDataWasWritten()
+        }
+
+        @Test
+        fun `store data using created stream`() {
+            val settings = BigQueryWriteSettings.newBuilder()
+                .setEndpoint(grpcHost)
+                .setCredentialsProvider { DummyCredentials() }
+                .setTransportChannelProvider(
+                    EnhancedBigQueryReadStubSettings.defaultGrpcTransportProviderBuilder()
+                        .setChannelConfigurator { it.usePlaintext() }
+                        .build()
+                )
+                .build()
+
+            val client = BigQueryWriteClient.create(settings)
+
+            val createWriteStreamRequest = CreateWriteStreamRequest.newBuilder()
+                .setParent(TableName.of(projectId, datasetId, tableId).toString())
+                .setWriteStream(WriteStream.newBuilder().setType(WriteStream.Type.COMMITTED).build())
+                .build()
+
+            val writeStream = client.createWriteStream(createWriteStreamRequest)
+            JsonStreamWriter.newBuilder(writeStream.name, writeStream.tableSchema).build()
+                .use { streamWriter ->
+                    val jsonArr = JSONArray().apply {
+                        val record = JSONObject()
+                        record.put("id", "15432")
+                        record.put("otherProp", "some value here")
+                        this.put(record)
+                    }
+
+                    val future = streamWriter.append(jsonArr)
+
+                    val latch = CountDownLatch(1)
+                    ApiFutures.addCallback(future, object : ApiFutureCallback<AppendRowsResponse> {
+                        override fun onFailure(t: Throwable) {
+                            throw t
+                        }
+
+                        override fun onSuccess(result: AppendRowsResponse) {
+                            latch.countDown()
+                        }
+
+                    }, MoreExecutors.directExecutor())
+
+                    expectThat(latch.await(2, TimeUnit.SECONDS)).isTrue()
+                    val finalizeResponse = client.finalizeWriteStream(streamWriter.streamName)
+                    expectThat(finalizeResponse.rowCount).isEqualTo(1);
+                }
+
+
+            expectThatDataWasWritten()
+        }
+
+        private fun expectThatDataWasWritten() {
+            val query = "SELECT * FROM `$projectId.$datasetId.$tableId`"
+            val loaded = service.query(QueryJobConfiguration.of(query))
+                .values
+                .map { BigQueryRestAPITest.Result(it.get("id").stringValue, it.get("otherProp").stringValue) }
+
+            expectThat(loaded).containsExactly(
+                BigQueryRestAPITest.Result("15432", "some value here"),
+            )
         }
     }
 }
